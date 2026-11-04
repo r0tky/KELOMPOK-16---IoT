@@ -1,0 +1,5 @@
+.pio/
+.vscode/.browse*
+__pycache__/
+*.pyc
+.env
