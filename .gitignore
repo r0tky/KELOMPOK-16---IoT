@@ -1,0 +1,27 @@
+# PlatformIO build artifacts
+.pio/
+firmware/.pio/
+*.bin
+*.elf
+*.o
+*.a
+*.map
+*.dblite
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Environment and sensitive files
+.env
+*.tok
+*.key
+
+# Editor and temporary files
+.vscode/.browse*
+*.log
+.DS_Store
+Thumbs.db

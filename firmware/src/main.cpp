@@ -24,8 +24,8 @@ const int   WIFI_CHANNEL = 6;
 
 const char*    MQTT_HOST = "broker.hivemq.com";  // Broker publik (hanya untuk uji)
 const uint16_t MQTT_PORT = 1883;
-// GANTI "xxxx" dengan angka acak Anda sendiri agar tidak bentrok dengan pengguna lain
-const char* TOPIC_PREFIX = "unib/fishslide/node01-xxxx";
+// Topik resmi Kelompok 16
+const char* TOPIC_PREFIX = "unib/fishslide/kelompok16/node01";
 
 // Penerima uji HTTP; nanti diganti ke backend-api (Tahap 8)
 const char* HTTP_URL = "http://httpbin.org/post";
@@ -206,31 +206,75 @@ void jalankanPerintah(char cmd, const char* sumber) {
   } else if (cmd == 'o') {
     modeOtomatis = false;
     kirimEvent("mode_change", "MANUAL");
-    setTarget(SERVO_ANGLE_OPEN, sumber);
+    if (status == ST_FAULT && servoTarget == SERVO_ANGLE_OPEN) {
+      sudahTiba = false;
+      terkonfirmasi = false;
+      status = ST_BERGERAK;
+      kirimEvent("fault_retry", "open");
+    } else {
+      setTarget(SERVO_ANGLE_OPEN, sumber);
+    }
   } else if (cmd == 'c') {
     modeOtomatis = false;
     kirimEvent("mode_change", "MANUAL");
-    setTarget(SERVO_ANGLE_CLOSED, sumber);
+    if (status == ST_FAULT && servoTarget == SERVO_ANGLE_CLOSED) {
+      sudahTiba = false;
+      terkonfirmasi = false;
+      status = ST_BERGERAK;
+      kirimEvent("fault_retry", "close");
+    } else {
+      setTarget(SERVO_ANGLE_CLOSED, sumber);
+    }
   }
+}
+
+void tampilkanMenuSerial() {
+  Serial.println(F("\n--- [Menu Perintah FishSlide] ---"));
+  Serial.println(F("  o / O : Buka penutup (Mode Manual)"));
+  Serial.println(F("  c / C : Tutup penutup (Mode Manual)"));
+  Serial.println(F("  a / A : Kembalikan ke Mode Otomatis"));
+  Serial.println(F("  ? / h : Tampilkan bantuan ini"));
+  Serial.println(F("---------------------------------\n"));
 }
 
 void bacaPerintahSerial() {
   while (Serial.available() > 0) {
     char cmd = tolower(Serial.read());
-    jalankanPerintah(cmd, "manual_command");
+    if (cmd == '\r' || cmd == '\n' || cmd == ' ') continue;
+    if (cmd == '?' || cmd == 'h') {
+      tampilkanMenuSerial();
+    } else {
+      jalankanPerintah(cmd, "serial_command");
+    }
   }
 }
 
 // Dipanggil PubSubClient saat ada pesan di topik cmd
 void onMqttMessage(char* topic, byte* payload, unsigned int len) {
-  char msg[16];
-  if (len >= sizeof(msg)) len = sizeof(msg) - 1;
-  memcpy(msg, payload, len);
-  msg[len] = '\0';
+  char buf[24];
+  if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+  memcpy(buf, payload, len);
+  buf[len] = '\0';
 
-  if (strcmp(msg, "open") == 0)       jalankanPerintah('o', "mqtt_command");
-  else if (strcmp(msg, "close") == 0) jalankanPerintah('c', "mqtt_command");
-  else if (strcmp(msg, "auto") == 0)  jalankanPerintah('a', "mqtt_command");
+  // Hapus karakter whitespace/newline di akhir pesan
+  while (len > 0 && (buf[len - 1] == '\r' || buf[len - 1] == '\n' || buf[len - 1] == ' ' || buf[len - 1] == '\t')) {
+    buf[--len] = '\0';
+  }
+
+  // Lewati whitespace di awal pesan
+  char* msg = buf;
+  while (*msg == ' ' || *msg == '\t' || *msg == '\r' || *msg == '\n') {
+    msg++;
+  }
+
+  // Konversi pesan ke huruf kecil
+  for (char* p = msg; *p; p++) {
+    *p = tolower((unsigned char)*p);
+  }
+
+  if (strcmp(msg, "open") == 0 || strcmp(msg, "o") == 0)            jalankanPerintah('o', "mqtt_command");
+  else if (strcmp(msg, "close") == 0 || strcmp(msg, "c") == 0)      jalankanPerintah('c', "mqtt_command");
+  else if (strcmp(msg, "auto") == 0 || strcmp(msg, "a") == 0)       jalankanPerintah('a', "mqtt_command");
   else kirimEvent("mqtt_cmd_ignored", msg);
 }
 
@@ -322,9 +366,9 @@ void updateLed(unsigned long now) {
 void prosesSensor(unsigned long now) {
   rainRaw = analogRead(PIN_RAIN);
   ldrRaw  = analogRead(PIN_LDR);
-  rainPct = map(rainRaw, 0, ADC_MAX, 0, 100);
-  int ldrPct = map(ldrRaw, 0, ADC_MAX, 0, 100);
-  terangPct = LDR_TERANG_NILAI_RENDAH ? (100 - ldrPct) : ldrPct;
+  rainPct = constrain(map(rainRaw, 0, ADC_MAX, 0, 100), 0, 100);
+  int ldrPct = constrain(map(ldrRaw, 0, ADC_MAX, 0, 100), 0, 100);
+  terangPct = constrain(LDR_TERANG_NILAI_RENDAH ? (100 - ldrPct) : ldrPct, 0, 100);
 
   if (modeOtomatis) evaluasiOtomatis(now);
 }
@@ -347,7 +391,11 @@ void updateWifi(unsigned long now) {
   if (now - tWifiCoba >= WIFI_RETRY_MS) {
     tWifiCoba = now;
     WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASS, WIFI_CHANNEL);
+    if (strcmp(WIFI_SSID, "Wokwi-GUEST") == 0) {
+      WiFi.begin(WIFI_SSID, WIFI_PASS, WIFI_CHANNEL);
+    } else {
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
   }
 }
 
@@ -383,13 +431,16 @@ void updateMqtt(unsigned long now) {
 }
 
 // ===================== HTTP POST =====================
-// Catatan: pemanggilan ini bersifat blocking selama menunggu respons (maks sekitar 3 detik)
+// Catatan: pemanggilan HTTPClient bersifat synchronous/blocking
 void kirimHttp() {
   if (WiFi.status() != WL_CONNECTED || jsonTelemetri[0] == '\0') return;
 
+  // Hindari blocking HTTP saat servo sedang aktif bergerak agar pergerakan tetap mulus
+  if (status == ST_BERGERAK) return;
+
   HTTPClient http;
-  http.setConnectTimeout(3000);
-  http.setTimeout(3000);
+  http.setConnectTimeout(1500);
+  http.setTimeout(1500);
   http.begin(HTTP_URL);
   http.addHeader("Content-Type", "application/json");
   int code = http.POST((uint8_t*)jsonTelemetri, strlen(jsonTelemetri));
@@ -427,10 +478,14 @@ void setup() {
   mqtt.setSocketTimeout(3);
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS, WIFI_CHANNEL);
+  if (strcmp(WIFI_SSID, "Wokwi-GUEST") == 0) {
+    WiFi.begin(WIFI_SSID, WIFI_PASS, WIFI_CHANNEL);
+  } else {
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+  }
   tWifiCoba = millis();
 
-  kirimEvent("boot", "FishSlide Tahap 7: MQTT dan HTTP");
+  kirimEvent("boot", "FishSlide Kelompok 16: MQTT dan HTTP");
 }
 
 void loop() {
