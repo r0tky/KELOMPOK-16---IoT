@@ -190,7 +190,7 @@ python firmware/test/test_scenarios.py
 
 ### C. Catatan Batasan Pengujian Simulasi & Fisik
 * **Simulasi Visual Wokwi:** Dijalankan secara interaktif menggunakan ekstensi VS Code Wokwi (`wokwi.wokwi-vscode`). Wokwi CLI *headless* di terminal membutuhkan token Wokwi CI berbayar dari dashboard Wokwi.
-* **Perangkat Keras Fisik:** Menjalankan firmware pada board ESP32 riil membutuhkan modul ESP32 fisik tersambung via USB, penyesuaian SSID/Password Wi-Fi lokal di `main.cpp`, serta upload via PlatformIO (`pio run -t upload`).
+* **Perangkat Keras Fisik:** Menjalankan firmware pada board ESP32 riil membutuhkan modul ESP32 fisik tersambung via USB, penyesuaian SSID/Password Wi-Fi lokal di `main.cpp`, serta upload via PlatformIO. (`pio run -t upload`).
 
 ---
 
